@@ -32,10 +32,12 @@ to make; the AI may merge the PR that records them** (way 2 below), ⚠ **and th
 - MUST: ⚠ **Removing a label the owner applied is asked every time.**
 - MAY: ⚠ **Push a non-default branch of this repository and open a PR without asking.**
   ⚠ **Never push to `main`.** ⚠ **Never push a tag.** ⚠ **Never force-push.**
-- There are exactly two ways a PR gets merged. ⚠ **Nothing else merges** — ⚠ **not auto-merge
+- There are exactly two ways a PR gets merged. ⚠ **Nothing else merges** — ⚠ **not GitHub's auto-merge
   (`--auto`), not a merge queue, not `--admin`, and never on red or in-progress CI.**
-  1. ⚠ **The AI, through `.claude/tools/merge-gate.mjs`, on its `PASS`.** ⚠ **The conditions are
-     that file's code and nowhere else** (⚠ never restate them here).
+  1. ⚠ **`.claude/tools/merge-gate.mjs`, on its `PASS`** — ⚠ **run by the AI, or by the `auto-merge`
+     workflow (`.github/workflows/auto-merge.yml`), which runs it from main, without `--owner-grant`,
+     when the owner posts a review or `ci` finishes on a PR.** ⚠ **The conditions are that file's code
+     and nowhere else** (⚠ never restate them here).
   2. ⚠ **An owner-only path, under the owner's standing grant.** ⚠ **When merge-gate
      refuses only because of an owner-only path, the AI may merge through
      `node .claude/tools/merge-gate.mjs <PR> --owner-grant`**, ⚠ **which keeps every other

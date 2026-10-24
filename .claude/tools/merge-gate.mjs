@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-// The one step through which the AI merges its own PR (.claude/rules/git.md § Permission).
+// The one step through which a PR is merged without the owner (.claude/rules/git.md § Permission): run by the AI,
+// or by the auto-merge workflow (.github/workflows/auto-merge.yml).
 //
 // ⚠ **This is a wall, not a note.** ⚠ The conditions for an AI merge live here as code, so
 //   "the AI may merge when …" is enforced by a refusal and not by remembering to check.
@@ -25,7 +26,7 @@
 //   1  refused — ⚠ nothing was merged
 //   2  could not decide or could not merge (usage, `gh` failed, the merge call failed)
 //      — ⚠ nothing was merged
-//   3  ⚠ MERGED, but the record of the AI's merge could not be posted. ⚠ Post it by hand.
+//   3  ⚠ MERGED, but the record of the merge could not be posted. ⚠ Post it by hand.
 //   ⚠ "The gate said no" (1), "the gate could not act" (2) and "it acted but did not record" (3)
 //   are different facts (`.claude/rules/evidence.md`, tenken's lines).
 
@@ -238,11 +239,14 @@ function main() {
   try { gh(["pr", "merge", n, "--squash", "--delete-branch", "--match-head-commit", head]); }
   catch (e) { fail(2, `the merge call failed — ${firstLine(e)}. ⚠ Check the PR: nothing should have been merged.`); }
 
-  // ⚠ Record that the AI merged it (owner-decisions.md: who acted has to stay answerable).
-  //   ⚠ The AI acts through the owner's credentials, so the host's actor field cannot tell.
+  // ⚠ Record who merged it (owner-decisions.md: who acted has to stay answerable).
+  //   ⚠ Run by hand, the AI acts through the owner's credentials, so the host's actor field cannot tell it from the
+  //   owner: the record is what says so. ⚠ Run by the auto-merge workflow (MERGE_GATE_ACTOR=workflow), it acts
+  //   through the owner's GitHub App, and the host records the App as the actor too.
+  const by = process.env.MERGE_GATE_ACTOR === "workflow" ? "the auto-merge workflow (.github/workflows/auto-merge.yml, the owner's GitHub App)" : "the AI";
   try {
     gh(["pr", "comment", n, "--body",
-      `merge-gate: merged by the AI at ${head} (.claude/rules/git.md § Permission)${ownerGrant ? " under the owner's standing grant for owner-only paths (--owner-grant)" : ""}. All conditions in .claude/tools/merge-gate.mjs held.`]);
+      `merge-gate: merged by ${by} at ${head} (.claude/rules/git.md § Permission)${ownerGrant ? " under the owner's standing grant for owner-only paths (--owner-grant)" : ""}. All conditions in .claude/tools/merge-gate.mjs held.`]);
   } catch (e) {
     fail(3, `⚠ PR #${n} WAS MERGED at ${head}, but the record could not be posted — ${firstLine(e)}. ⚠ Post it by hand.`);
   }

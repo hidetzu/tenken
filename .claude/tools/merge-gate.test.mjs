@@ -255,7 +255,7 @@ test("REQUIRED_CHECKS names exactly the jobs in .github/workflows/ci.yml", () =>
 // ── the CLI against a stub gh ──────────────────────────────────────────────
 
 
-function runWithStub(state, args, { failMerge = false, failComment = false, secondState = null } = {}) {
+function runWithStub(state, args, { failMerge = false, failComment = false, secondState = null, actor } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "merge-gate-"));
   const log = join(dir, "calls.log");
   const put = (name, v) => writeFileSync(join(dir, name), JSON.stringify(v));
@@ -276,7 +276,7 @@ esac
 `);
   chmodSync(join(dir, "gh"), 0o755);
   const r = spawnSync(process.execPath, [join(HERE, "merge-gate.mjs"), ...args],
-    { env: { ...process.env, PATH: `${dir}:${process.env.PATH}` }, encoding: "utf8" });
+    { env: { ...process.env, PATH: `${dir}:${process.env.PATH}`, MERGE_GATE_ACTOR: actor ?? "" }, encoding: "utf8" });
   return { ...r, calls: existsSync(log) ? readFileSync(log, "utf8").trim().split("\n") : [] };
 }
 const called = (r, prefix) => r.calls.some((c) => c.startsWith(prefix));
@@ -309,6 +309,15 @@ test("a passing PR merges pinned to the head, then records it", () => {
   assert.ok(merge, r.calls.join("\n"));
   assert.match(merge, new RegExp(`--match-head-commit ${HEAD}`));
   assert.ok(r.calls.indexOf(merge) < r.calls.findIndex((c) => c.startsWith("pr comment")));
+});
+
+test("the record says who merged it: the AI by hand, or the auto-merge workflow", () => {
+  const byHand = runWithStub(good(), ["9"]);
+  assert.equal(byHand.status, 0, byHand.stdout + byHand.stderr);
+  assert.ok(byHand.calls.some((c) => c.startsWith("pr comment 9") && c.includes("merged by the AI at")), byHand.calls.join("\n"));
+  const byWorkflow = runWithStub(good(), ["9"], { actor: "workflow" });
+  assert.equal(byWorkflow.status, 0, byWorkflow.stdout + byWorkflow.stderr);
+  assert.ok(byWorkflow.calls.some((c) => c.startsWith("pr comment 9") && c.includes("merged by the auto-merge workflow")), byWorkflow.calls.join("\n"));
 });
 
 test("a stop label added between the reads stops the merge", () => {
