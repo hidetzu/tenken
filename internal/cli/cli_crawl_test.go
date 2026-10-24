@@ -1196,3 +1196,39 @@ func TestMaxRequestsPicksTheSameURLsEveryRun(t *testing.T) {
 		}
 	}
 }
+
+// docs/test-perspectives.md §2.2: robots.txt が --max-body で切れても、読めた分のルールで巡回し、切れたことは何も報告しない
+// （sitemap.robots-* の指摘も、robots-unavailable の skipped も出ない）。切れる前のルールで禁止したページは取りに行かず、
+// 切れたあとのルールのページは取りに行く。
+func TestARobotsTxtCutAtMaxBodyIsUsedAndNotReported(t *testing.T) {
+	h := newHarness(t)
+	var early, late int32
+	robots := "User-agent: *\nDisallow: /early\n" + strings.Repeat("# padding padding padding padding\n", 200) + "Disallow: /late\n"
+	site := h.htmlSite(map[string]string{"/": `<a href="/early">e</a><a href="/late">l</a>`}, map[string]http.HandlerFunc{
+		"/robots.txt": func(w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, robots) },
+		"/early":      func(w http.ResponseWriter, r *http.Request) { atomic.AddInt32(&early, 1); fmt.Fprint(w, "e") },
+		"/late":       func(w http.ResponseWriter, r *http.Request) { atomic.AddInt32(&late, 1); fmt.Fprint(w, "l") },
+	})
+	if len(robots) <= 2048 {
+		t.Fatalf("robots.txt is %d bytes, want more than --max-body 2KiB (2048)", len(robots))
+	}
+	code, out, errOut := h.run("--only", "links,sitemap", "--format", "json", "--max-body", "2KiB", site)
+	if out == "" {
+		t.Fatalf("code %d, no JSON; stderr %q", code, errOut)
+	}
+	m := decode(t, out)
+	for _, f := range findings(m) {
+		if strings.HasPrefix(f["rule"].(string), "sitemap.robots-") {
+			t.Errorf("finding %v: a cut robots.txt must not be reported", f)
+		}
+	}
+	for _, s := range m["skipped"].([]any) {
+		if s.(map[string]any)["code"] == "robots-unavailable" {
+			t.Errorf("skipped %v: a cut robots.txt is still used", s)
+		}
+	}
+	nf := summaryOf(m)["not_fetched"].(map[string]any)
+	if atomic.LoadInt32(&early) != 0 || atomic.LoadInt32(&late) == 0 || nf["robots_disallowed"] != 1.0 {
+		t.Fatalf("/early fetched %d, /late fetched %d, robots_disallowed %v; want 0, at least 1, 1 (the rule before the cut is used, the one after it is not read)\n%s", atomic.LoadInt32(&early), atomic.LoadInt32(&late), nf["robots_disallowed"], errOut)
+	}
+}
