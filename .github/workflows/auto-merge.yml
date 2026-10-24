@@ -53,12 +53,12 @@ jobs:
           # ⚠ workflow_run lists no PR for a fork's branch: then there is nothing to do here.
           n="${FROM_COMMENT:-${FROM_RUN:-}}"
           case "$n" in ''|*[!0-9]*) echo "no PR number on this event: nothing to do"; echo "n=" >> "$GITHUB_OUTPUT" ;; *) echo "n=$n" >> "$GITHUB_OUTPUT" ;; esac
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         if: steps.pr.outputs.n != ''
         with:
           ref: main
           persist-credentials: false
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         if: steps.pr.outputs.n != ''
         with:
           node-version: "22"
