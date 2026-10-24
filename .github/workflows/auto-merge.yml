@@ -19,11 +19,6 @@ on:
 
 permissions: {}
 
-concurrency:
-  # ⚠ The PR number on both triggers (never a branch name, which whoever pushes chooses)
-  group: auto-merge-${{ github.event.issue.number || github.event.workflow_run.pull_requests[0].number || github.run_id }}
-  cancel-in-progress: false
-
 jobs:
   merge:
     runs-on: ubuntu-latest
@@ -32,6 +27,12 @@ jobs:
        github.event.comment.user.id == 2199131 && startsWith(github.event.comment.body, 'Verdict: PASS')) ||
       (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'pull_request' &&
        github.event.workflow_run.conclusion == 'success')
+    # ⚠ At job level, so it applies only after the `if` above: a comment by anyone else queues nothing here,
+    #   and cannot cancel a pending run (a pending run in a group is replaced by a newer one)
+    concurrency:
+      # ⚠ The PR number on both triggers (never a branch name, which whoever pushes chooses)
+      group: auto-merge-${{ github.event.issue.number || github.event.workflow_run.pull_requests[0].number || github.run_id }}
+      cancel-in-progress: false
     env:
       HAS_APP: ${{ vars.AUTO_MERGE_APP_CLIENT_ID != '' }}
     steps:
@@ -67,8 +68,10 @@ jobs:
           client-id: ${{ vars.AUTO_MERGE_APP_CLIENT_ID }}
           private-key: ${{ secrets.AUTO_MERGE_APP_PRIVATE_KEY }}
           # ⚠ Only what merge-gate calls: read the PR, its files, comments, checks and the compare (read);
-          #   merge and delete the branch (contents write); post the record on the PR (pull-requests write)
+          #   merge and delete the branch (contents write); post the record on the PR (pull-requests write);
+          #   statusCheckRollup's workflow name, which merge-gate matches the required checks by (actions read)
           permission-contents: write
+          permission-actions: read
           permission-pull-requests: write
           permission-checks: read
           permission-statuses: read

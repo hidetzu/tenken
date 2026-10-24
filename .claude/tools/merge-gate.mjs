@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-// The one step through which the AI merges its own PR (.claude/rules/git.md § Permission).
+// The one step through which a PR is merged without the owner (.claude/rules/git.md § Permission): run by the AI,
+// or by the auto-merge workflow (.github/workflows/auto-merge.yml).
 //
 // ⚠ **This is a wall, not a note.** ⚠ The conditions for an AI merge live here as code, so
 //   "the AI may merge when …" is enforced by a refusal and not by remembering to check.
@@ -25,7 +26,7 @@
 //   1  refused — ⚠ nothing was merged
 //   2  could not decide or could not merge (usage, `gh` failed, the merge call failed)
 //      — ⚠ nothing was merged
-//   3  ⚠ MERGED, but the record of the AI's merge could not be posted. ⚠ Post it by hand.
+//   3  ⚠ MERGED, but the record of the merge could not be posted. ⚠ Post it by hand.
 //   ⚠ "The gate said no" (1), "the gate could not act" (2) and "it acted but did not record" (3)
 //   are different facts (`.claude/rules/evidence.md`, tenken's lines).
 
