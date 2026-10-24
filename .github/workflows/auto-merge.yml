@@ -1,0 +1,79 @@
+# Auto-merge: run merge-gate (.claude/tools/merge-gate.mjs) when a PR may have become mergeable, and merge on its PASS.
+# ⚠ merge-gate is the only judge, exactly as when the AI runs it by hand (.claude/rules/git.md § Permission, way 1).
+#   It runs WITHOUT --owner-grant: a PR that changes an owner-only path is refused here and merged by hand (way 2).
+# ⚠ It runs merge-gate from main, never from the PR: the checkout is the default branch on both triggers, and no
+#   code from the PR is run. The PR is only read through the API.
+# ⚠ The token is the owner's GitHub App (variable AUTO_MERGE_APP_CLIENT_ID, secret AUTO_MERGE_APP_PRIVATE_KEY), not
+#   GITHUB_TOKEN: a merge by GITHUB_TOKEN would not start ci, os and CodeQL on main. Without the variable, it says so
+#   and does nothing.
+# ⚠ Triggers: a review comment by the owner (the review is posted through the owner's account; merge-gate checks the
+#   login and the id again), or ci finishing on a PR branch (a review posted before CI finished).
+name: auto-merge
+
+on:
+  issue_comment:
+    types: [created]
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+
+permissions: {}
+
+concurrency:
+  group: auto-merge-${{ github.event.issue.number || github.event.workflow_run.head_branch }}
+  cancel-in-progress: false
+
+jobs:
+  merge:
+    runs-on: ubuntu-latest
+    if: >-
+      (github.event_name == 'issue_comment' && github.event.issue.pull_request &&
+       github.event.comment.user.id == 2199131 && startsWith(github.event.comment.body, 'Verdict: PASS')) ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'pull_request' &&
+       github.event.workflow_run.conclusion == 'success')
+    env:
+      HAS_APP: ${{ vars.AUTO_MERGE_APP_CLIENT_ID != '' }}
+    steps:
+      - name: say the app is not configured
+        if: env.HAS_APP != 'true'
+        run: |
+          echo "AUTO_MERGE_APP_CLIENT_ID is not set: nothing was merged. Run merge-gate by hand."
+      - name: find the PR
+        if: env.HAS_APP == 'true'
+        id: pr
+        env:
+          FROM_COMMENT: ${{ github.event.issue.number }}
+          FROM_RUN: ${{ github.event.workflow_run.pull_requests[0].number }}
+        run: |
+          set -euo pipefail
+          # ⚠ workflow_run lists no PR for a fork's branch: then there is nothing to do here.
+          n="${FROM_COMMENT:-${FROM_RUN:-}}"
+          case "$n" in ''|*[!0-9]*) echo "no PR number on this event: nothing to do"; echo "n=" >> "$GITHUB_OUTPUT" ;; *) echo "n=$n" >> "$GITHUB_OUTPUT" ;; esac
+      - uses: actions/checkout@v4
+        if: steps.pr.outputs.n != ''
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        if: steps.pr.outputs.n != ''
+        with:
+          node-version: "22"
+      - name: mint a token
+        if: steps.pr.outputs.n != ''
+        id: app
+        uses: actions/create-github-app-token@v2
+        with:
+          client-id: ${{ vars.AUTO_MERGE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.AUTO_MERGE_APP_PRIVATE_KEY }}
+      - name: run merge-gate
+        if: steps.pr.outputs.n != ''
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          GH_REPO: ${{ github.repository }}
+          PR: ${{ steps.pr.outputs.n }}
+        run: |
+          set -uo pipefail
+          # ⚠ 0 merged, 1 refused (the normal answer while a condition is not met yet), 2 / 3 something went wrong.
+          node .claude/tools/merge-gate.mjs "$PR"
+          code=$?
+          [ "$code" -le 1 ] || exit "$code"
