@@ -1,0 +1,46 @@
+# What "green" means for merge-gate (.claude/tools/merge-gate.mjs, .claude/rules/git.md § Permission).
+# ⚠ A tier not named here is a tier CI does not run — say so on the PR, never imply it ran.
+# ⚠ Every job here is in REQUIRED_CHECKS in .claude/tools/merge-gate.mjs, and nothing else is
+#   (merge-gate.test.mjs holds the two together).
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  docs-and-tools:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      # ⚠ git's default, made explicit: non-ASCII paths come back escaped (so docs-check reads them with -z).
+      - run: git config --global core.quotePath true
+      - run: node .claude/tools/docs-check.mjs
+      - run: node --test ".claude/tools/*.test.mjs"
+
+  # ⚠ No matrix: a matrix renames the job (go (linux), …) and merge-gate looks for the name "go".
+  go:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: gofmt
+        run: test -z "$(gofmt -l . | tee /dev/stderr)"
+      - run: go vet ./...
+      - run: go test -race ./...
+      - run: go mod tidy -diff
+      # ⚠ Compiled, not run: say "builds for", never "works on" (.claude/skills/verify/SKILL.md).
+      - name: cross-compile
+        run: |
+          for t in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64; do
+            CGO_ENABLED=0 GOOS=${t%/*} GOARCH=${t#*/} go build -o /dev/null ./cmd/tenken
+          done

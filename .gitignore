@@ -1,0 +1,23 @@
+# ⚠ Another session's working copy (git worktree). ⚠ It is a full copy of this repository,
+#   so tracking it means `git add -A` sweeps another session's work in.
+.claude/worktrees/
+
+# Local secrets and environment (direnv). ⚠ Never tracked.
+.env
+.envrc
+
+# ⚠ Test certificates are generated inside the tests and never land here
+#   (docs/test-perspectives.md § 1). If one appears, it is a mistake, not a fixture.
+*.pem
+*.crt
+*.key
+
+# Editor / OS
+.DS_Store
+.idea/
+*.swp
+
+# Go build output
+/tenken
+/tenken.exe
+/dist/

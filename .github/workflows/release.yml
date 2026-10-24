@@ -1,0 +1,128 @@
+# Release: when the owner pushes a tag v*, build the 5 targets and attach them, with the checksums, to a DRAFT
+# GitHub Release (a pre-release when the tag has "-"). ⚠ Publishing stays the owner's act twice over: the tag push starts this, and the draft is published by hand.
+# ⚠ Before the draft is made, the linux/amd64 archive is checked against the checksums, extracted and run (--version, and once
+#   against fixture/ on 127.0.0.1 with nothing leaving the runner); a failure there means no draft.
+# ⚠ The draft's text is .github/release/notes/<tag>.md; without it the workflow stops before building.
+# ⚠ No Homebrew formula: tenken is not distributed through Homebrew for now.
+# ⚠ The external tier is run by hand, not here (how: .claude/skills/verify/SKILL.md).
+# ⚠ Not a merge-gate check (not in ci.yml).
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: the release notes for this tag exist
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          # ⚠ The draft's text is .github/release/notes/<tag>.md, written and reviewed in a PR before the tag is pushed.
+          #   Without it, nothing is built: a draft with placeholder text could be published as it is.
+          notes=".github/release/notes/${TAG}.md"
+          [ -s "$notes" ] || { echo "release: $notes is missing or empty; add it in a PR before pushing the tag" >&2; exit 1; }
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: build every target
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          # ⚠ The archive name tenken_<version>_<os>_<arch>.tar.gz|zip is what users' scripts download from a release; renaming it breaks them
+          cp LICENSE README.md dist/
+          for t in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64; do
+            os=${t%/*}; arch=${t#*/}; ext=""; [ "$os" = windows ] && ext=".exe"
+            CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -trimpath \
+              -ldflags "-s -w -X github.com/hidetzu/tenken/internal/cli.Version=${VERSION#v}" \
+              -o "dist/tenken${ext}" ./cmd/tenken
+            if [ "$os" = windows ]; then
+              ( cd dist && zip -q "tenken_${VERSION#v}_${os}_${arch}.zip" "tenken${ext}" LICENSE README.md )
+            else
+              ( cd dist && tar -czf "tenken_${VERSION#v}_${os}_${arch}.tar.gz" "tenken${ext}" LICENSE README.md )
+            fi
+            rm "dist/tenken${ext}"
+          done
+          rm dist/LICENSE dist/README.md
+          ( cd dist && sha256sum * > "tenken_${VERSION#v}_checksums.txt" && cat "tenken_${VERSION#v}_checksums.txt" )
+      - name: run the linux/amd64 archive before the draft exists
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          # ⚠ What a user downloads is the archive, not the tree that was built, so the archive is what runs here.
+          #   The runner is linux/amd64, so that one is run; the other 4 are only built (os.yml runs the tests on macOS and Windows; linux/arm64 and darwin/amd64 are not run).
+          # ⚠ Any failure here stops the job before "create a draft release", so no draft is made from an archive that does not run.
+          v="${VERSION#v}"
+          archive="tenken_${v}_linux_amd64.tar.gz"
+          sums="tenken_${v}_checksums.txt"
+          work="$(mktemp -d)"
+          server=""
+          # ⚠ The trap never fails on its own: a server that already exited makes kill fail, and under set -e that would
+          #   stop the trap before rm and turn a pass into a silent exit 1
+          trap '{ [ -n "$server" ] && kill "$server" 2>/dev/null; } || true; rm -rf "$work"' EXIT
+          # The archive matches its line in the checksums file (exactly one line names it)
+          line="$(awk -v f="$archive" '$2 == f' "dist/$sums")"
+          [ "$(printf '%s' "$line" | grep -c '')" -eq 1 ] || { echo "release smoke: $archive is not listed exactly once in $sums" >&2; exit 1; }
+          ( cd dist && printf '%s\n' "$line" | sha256sum -c - )
+          tar -xzf "dist/$archive" -C "$work"
+          # --version prints exactly "tenken <the tag without v>" and a newline (cmp compares the bytes)
+          "$work/tenken" --version > "$work/version.txt"
+          printf 'tenken %s\n' "$v" | cmp - "$work/version.txt" || { echo "release smoke: --version printed '$(cat "$work/version.txt")', want 'tenken $v'" >&2; exit 1; }
+          # Serve fixture/ on 127.0.0.1 (serve.py binds port 0 and writes the port only after binding: fixture/README.md)
+          python3 fixture/serve.py "$work/port" &
+          server=$!
+          port=""
+          for _ in $(seq 50); do
+            kill -0 "$server" 2>/dev/null || { echo "release smoke: fixture/serve.py exited before it started serving" >&2; exit 1; }
+            [ -s "$work/port" ] && { port="$(cat "$work/port")"; break; }
+            sleep 0.1
+          done
+          [ -n "$port" ] || { echo "release smoke: fixture/serve.py did not start serving after 50 checks" >&2; exit 1; }
+          # ⚠ No request leaves the runner. fixture/ links to example.org and www.example.com: --no-external does not check
+          #   them (docs/cli-reference.md §3.1), and a sitemap URL on another origin is never fetched (§5.2 not_fetched.external).
+          # ⚠ And something blocks it, not only the flag: every proxy variable points at 127.0.0.1:1, where nothing listens.
+          #   Go sends a request to `localhost` or a loopback address directly and every other http / https request to the
+          #   proxy (§3.6; tenken fetches only http and https), so a request
+          #   meant for the public network fails on this machine, and tenken says so on stderr ("a proxy is in use"),
+          #   which is asserted absent below. NO_PROXY is empty and the lower-case variables are unset, so none of them
+          #   lets a request go direct.
+          set +e
+          env -u http_proxy -u https_proxy -u no_proxy HTTP_PROXY=http://127.0.0.1:1 HTTPS_PROXY=http://127.0.0.1:1 NO_PROXY= \
+            "$work/tenken" --format json --quiet --no-external "http://127.0.0.1:${port}/" > "$work/out.json" 2> "$work/err.txt"
+          code=$?
+          set -e
+          cat "$work/err.txt" >&2
+          echo "tenken exit code: $code"
+          # ⚠ What is asserted is that it ran, not what it found: fixture/ has problems placed on purpose, so 1 is expected,
+          #   and 0 is allowed. 2 (usage) and 3 (could not check) are a binary that did not do the job (docs/cli-reference.md §4)
+          [ "$code" -eq 0 ] || [ "$code" -eq 1 ] || { echo "release smoke: tenken exited $code, want 0 or 1" >&2; exit 1; }
+          jq -e 'type == "object"' "$work/out.json" > /dev/null || { echo "release smoke: standard output is not a JSON object" >&2; exit 1; }
+          jq -c '{tool, summary}' "$work/out.json"
+          jq -e --arg v "$v" '.tool.version == $v' "$work/out.json" > /dev/null || { echo "release smoke: tool.version is $(jq -c .tool.version "$work/out.json"), want \"$v\"" >&2; exit 1; }
+          jq -e '.summary.pages_crawled >= 1' "$work/out.json" > /dev/null || { echo "release smoke: summary.pages_crawled is $(jq -c .summary.pages_crawled "$work/out.json"), want at least 1" >&2; exit 1; }
+          if grep -q 'a proxy is in use' "$work/err.txt" || jq -e '[.findings[] | select(.rule == "links.unreachable")] | length > 0' "$work/out.json" > /dev/null; then
+            echo "release smoke: tenken tried to reach something other than 127.0.0.1 (a proxy was used, or a link was unreachable)" >&2; exit 1
+          fi
+          echo "release smoke: PASS ($archive)"
+      - name: create a draft release with the files
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          # ⚠ A tag with "-" (v0.1.0-dev.1) is a SemVer pre-release, so the GitHub Release is a pre-release too:
+          #   it is not shown as Latest. Go's @latest reads the tag, not this flag
+          pre=()
+          case "$TAG" in *-*) pre=(--prerelease) ;; esac
+          gh release create "$TAG" --draft "${pre[@]}" --verify-tag --title "$TAG" \
+            --notes-file ".github/release/notes/${TAG}.md" dist/*

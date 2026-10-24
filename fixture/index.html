@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>tenken fixture</title>
+<link rel="stylesheet" href="assets/style.css">
+<link rel="preconnect" href="https://www.example.com">
+<script src="assets/app.js"></script>
+</head>
+<body>
+<h1>tenken fixture site</h1>
+<p>This site exists so that tenken (<a href="https://example.org/">an external link, not expected to be broken</a>) can be run against a site
+whose problems are known in advance. Every problem on it is deliberate, and the expected findings are in <code>fixture/check.sh</code>.</p>
+<ul>
+  <li><a href="ok.html">a page that is fine</a></li>
+  <li><a href="missing.html">a link to a page that does not exist (links.broken, 404)</a></li>
+  <li><a href="private/secret.html">a page robots.txt disallows (not fetched, counted)</a></li>
+  <li><a href="https://www.example.com/">an external link (fetched once; check.sh asserts only that it is not reported broken)</a></li>
+  <li><a href="http://localhost:8080/">a link to a loopback address (not fetched, not_fetched.private)</a></li>
+  <li><a href="#top">a fragment (not a reference)</a></li>
+</ul>
+<img src="assets/pic.png" alt="a 1x1 image">
+<img src="assets/nope.png" alt="an image that does not exist (links.broken)">
+</body>
+</html>

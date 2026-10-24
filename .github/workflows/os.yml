@@ -1,0 +1,29 @@
+# Tests on the operating systems CI's `go` job does not run on (docs/test-perspectives.md §5: 全 OS でテストが通る).
+# ⚠ Not a merge-gate check (not in ci.yml): it runs on main and by hand, so a flaky runner does not block a PR; a red here is
+#   still a FAIL to look at before a release.
+# ⚠ Dispatch it on main, not on a PR branch: merge-gate refuses on any failed run on a PR's head, required or not.
+name: os
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go test ./...
+        env:
+          CI: "true"

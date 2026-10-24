@@ -1,0 +1,4 @@
+# tenken fixture: a deliberate Disallow and a Sitemap line
+User-agent: *
+Disallow: /private/
+Sitemap: {{ORIGIN}}/sitemap.xml
