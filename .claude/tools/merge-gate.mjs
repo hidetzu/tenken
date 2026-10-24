@@ -94,11 +94,14 @@ const touched = (f) => [f.filename, f.previous_filename].filter(Boolean);
 // ⚠ Only the latest review counts: an older PASS says nothing about a newer head.
 // ⚠ Only a comment by a REVIEWERS login is a review. ⚠ The repository is public, so anyone can post a comment
 //   that looks like a PASS; one from anyone else is not read at all (it can neither pass nor hide a review).
-//   The fresh-context review is posted through the owner's account, so the owner's login is the only one.
-export const REVIEWERS = ["hidetzu"];
+//   The fresh-context review is posted through the owner's account, so the owner is the only one.
+// ⚠ Matched by the numeric id as well as the login: a login can be renamed and then registered by someone else,
+//   an id never changes (GitHub REST users/hidetzu: id 2199131).
+export const REVIEWERS = [{ login: "hidetzu", id: 2199131 }];
+const isReviewer = (user) => REVIEWERS.some((r) => user?.login === r.login && user?.id === r.id);
 export const latestReview = (comments) => {
   const reviews = comments
-    .filter((c) => REVIEWERS.includes(c.user?.login))
+    .filter((c) => isReviewer(c.user))
     .filter((c) => /^Verdict: \S/.test(c.body.trimStart()))
     .sort((a, b) => a.created_at.localeCompare(b.created_at));
   const c = reviews.at(-1);
