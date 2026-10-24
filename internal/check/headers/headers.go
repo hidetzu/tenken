@@ -4,6 +4,7 @@ package headers
 
 import (
 	"fmt"
+	"math"
 	"net/url"
 	"sort"
 	"strconv"
@@ -148,9 +149,10 @@ func maxAge(v string) (age int, why string) {
 		if val == "" || strings.Trim(val, "0123456789") != "" {
 			return 0, fmt.Sprintf("max-age=%s is not a number of seconds", short(val))
 		}
-		n, err := strconv.ParseInt(val, 10, 64)
-		if err != nil || n > int64(^uint(0)>>1) {
-			n = int64(^uint(0) >> 1) // 桁が多すぎて持てない: どんなしきい値よりも長い
+		// int の幅で読む: 大きすぎれば ParseInt が int の最大値を返す（桁が多すぎて持てない: どんなしきい値よりも長い）
+		n, err := strconv.ParseInt(val, 10, strconv.IntSize)
+		if err != nil {
+			n = math.MaxInt
 		}
 		found, age = true, int(n)
 	}
