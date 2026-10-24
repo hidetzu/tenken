@@ -1061,9 +1061,9 @@ func TestWaitedIsRoundedAfterTheFloor(t *testing.T) {
 	}
 }
 
-// docs/test-perspectives.md §2.2: robots.txt は --max-body までダウンロードし、そこで切れても読めた分のルールを使う。
-// 切れたことは何も報告しない（State は ok のまま、robots-unavailable にもならない）。
-func TestRobotsCutAtMaxBodyUsesWhatWasReadAndReportsNothing(t *testing.T) {
+// docs/test-perspectives.md §2.2: robots.txt は --max-body までダウンロードし、そこで切れても読めた分のルールを使う
+// （State は ok のまま）。何も報告しないことは internal/cli の TestARobotsTxtCutAtMaxBodyIsUsedAndNotReported が見る。
+func TestRobotsCutAtMaxBodyUsesWhatWasRead(t *testing.T) {
 	s := newSite(t, map[string]string{"/": "x"})
 	s.robots = "User-agent: *\nDisallow: /early\n" + strings.Repeat("# padding padding padding padding\n", 200) + "Disallow: /late\n"
 	c := fetch.New(fetch.Options{Timeout: 3 * time.Second, MaxBody: 2048, Now: testsupport.Clock(testsupport.Now)})
