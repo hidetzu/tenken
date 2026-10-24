@@ -1,0 +1,14 @@
+# Dependabot: weekly version updates for the Go module and the GitHub Actions in the workflows.
+# ⚠ A PR from here is reviewed and merged like any other (merge-gate; a workflow is an owner-only path, so
+#   --owner-grant). ⚠ A new dependency, as opposed to a new version of an existing one, needs a reason in
+#   docs/design.md §1 first (.claude/rules/go.md § Dependencies).
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
