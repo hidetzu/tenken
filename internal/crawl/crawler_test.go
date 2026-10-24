@@ -1060,3 +1060,22 @@ func TestWaitedIsRoundedAfterTheFloor(t *testing.T) {
 		t.Fatalf("waited %v err %v; want 4.877s", ch.Waited, err)
 	}
 }
+
+// docs/test-perspectives.md §2.2: robots.txt は --max-body までダウンロードし、そこで切れても読めた分のルールを使う。
+// 切れたことは何も報告しない（State は ok のまま、robots-unavailable にもならない）。
+func TestRobotsCutAtMaxBodyUsesWhatWasReadAndReportsNothing(t *testing.T) {
+	s := newSite(t, map[string]string{"/": "x"})
+	s.robots = "User-agent: *\nDisallow: /early\n" + strings.Repeat("# padding padding padding padding\n", 200) + "Disallow: /late\n"
+	c := fetch.New(fetch.Options{Timeout: 3 * time.Second, MaxBody: 2048, Now: testsupport.Clock(testsupport.Now)})
+	t.Cleanup(c.Close)
+	if len(s.robots) <= 2048 {
+		t.Fatalf("the robots.txt in this test is %d bytes, want more than --max-body (2048)", len(s.robots))
+	}
+	r := ReadRobots(context.Background(), c, s.srv.URL, Options{Product: "tenken", Now: testsupport.Clock(testsupport.Now), Sleep: func(time.Duration) {}})
+	if r.State != RobotsOK || r.Rules == nil {
+		t.Fatalf("state %q rules %v, want ok with rules (a cut robots.txt is still read)", r.State, r.Rules)
+	}
+	if r.Rules.Allowed("/early") || !r.Rules.Allowed("/late") {
+		t.Fatalf("/early allowed %v, /late allowed %v; want the rule before the cut used and the one after it not read", r.Rules.Allowed("/early"), r.Rules.Allowed("/late"))
+	}
+}
