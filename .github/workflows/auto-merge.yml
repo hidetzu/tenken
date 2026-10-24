@@ -20,7 +20,8 @@ on:
 permissions: {}
 
 concurrency:
-  group: auto-merge-${{ github.event.issue.number || github.event.workflow_run.head_branch }}
+  # ⚠ The PR number on both triggers (never a branch name, which whoever pushes chooses)
+  group: auto-merge-${{ github.event.issue.number || github.event.workflow_run.pull_requests[0].number || github.run_id }}
   cancel-in-progress: false
 
 jobs:
@@ -61,10 +62,16 @@ jobs:
       - name: mint a token
         if: steps.pr.outputs.n != ''
         id: app
-        uses: actions/create-github-app-token@v2
+        uses: actions/create-github-app-token@v3
         with:
           client-id: ${{ vars.AUTO_MERGE_APP_CLIENT_ID }}
           private-key: ${{ secrets.AUTO_MERGE_APP_PRIVATE_KEY }}
+          # ⚠ Only what merge-gate calls: read the PR, its files, comments, checks and the compare (read);
+          #   merge and delete the branch (contents write); post the record on the PR (pull-requests write)
+          permission-contents: write
+          permission-pull-requests: write
+          permission-checks: read
+          permission-statuses: read
       - name: run merge-gate
         if: steps.pr.outputs.n != ''
         env:
@@ -72,8 +79,13 @@ jobs:
           GH_REPO: ${{ github.repository }}
           PR: ${{ steps.pr.outputs.n }}
         run: |
-          set -uo pipefail
+          set -euo pipefail
           # ⚠ 0 merged, 1 refused (the normal answer while a condition is not met yet), 2 / 3 something went wrong.
-          node .claude/tools/merge-gate.mjs "$PR"
-          code=$?
+          #   The default shell is bash -e, so the exit code is caught with || (a bare call would end the step on 1).
+          # ⚠ merge-gate prints PR file names; stop-commands keeps any of them from being read as a workflow command.
+          stop="$(openssl rand -hex 16)"
+          echo "::stop-commands::${stop}"
+          code=0
+          MERGE_GATE_ACTOR=workflow node .claude/tools/merge-gate.mjs "$PR" || code=$?
+          echo "::${stop}::"
           [ "$code" -le 1 ] || exit "$code"
