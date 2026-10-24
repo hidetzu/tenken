@@ -19,8 +19,9 @@ import { decide, isOwnerPath, latestReview, REQUIRED_CHECKS } from "./merge-gate
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const HEAD = "abcdef1234567890abcdef1234567890abcdef12";
-const review = (verdict, { sha = HEAD, ctx = "fresh context", at = "2026-10-18T10:00:00Z", before = "" } = {}) => ({
+const review = (verdict, { sha = HEAD, ctx = "fresh context", at = "2026-10-18T10:00:00Z", before = "", login = "hidetzu" } = {}) => ({
   created_at: at,
+  user: { login },
   body: `${before}Verdict: ${verdict}\n\nReviewed at:\n  ${sha}\nReviewed in:\n  ${ctx}\nRead:\n  whole change\n`,
 });
 const ok = (name, workflowName = "ci") => ({ __typename: "CheckRun", name, workflowName, status: "COMPLETED", conclusion: "SUCCESS" });
@@ -168,9 +169,25 @@ test("only the latest review counts", () => {
   assert.match(reasons(s), /does not say exactly "Verdict: PASS" \(NEEDS-FIX\)/);
 });
 
+test("a PASS from anyone but a reviewer is not a review", () => {
+  const s = good(); s.comments = [review("PASS", { login: "someone-else" })];
+  assert.match(reasons(s), /no change-review return/);
+});
+
+test("a stranger's later PASS does not hide the reviewer's NEEDS-FIX", () => {
+  const s = good();
+  s.comments = [review("NEEDS-FIX", { at: "2026-10-18T10:00:00Z" }), review("PASS", { at: "2026-10-18T11:00:00Z", login: "someone-else" })];
+  assert.match(reasons(s), /does not say exactly "Verdict: PASS" \(NEEDS-FIX\)/);
+});
+
+test("a comment with no author is not a review", () => {
+  const s = good(); const { user, ...anon } = review("PASS"); s.comments = [anon];
+  assert.match(reasons(s), /no change-review return/);
+});
+
 test("the skill's unfilled template is not a PASS", () => {
   const s = good();
-  s.comments = [{ created_at: "2026-10-18T10:00:00Z",
+  s.comments = [{ created_at: "2026-10-18T10:00:00Z", user: { login: "hidetzu" },
     body: `Verdict: PASS / NEEDS-FIX / HUMAN-DECISION\n\nReviewed at:\n  ${HEAD}\nReviewed in:\n  fresh context / ⚠ same context (<why>)\n` }];
   const r = reasons(s);
   assert.match(r, /does not say exactly "Verdict: PASS"/);
@@ -198,7 +215,7 @@ test("a same-context review refuses", () => {
 });
 
 test("no review refuses", () => {
-  const s = good(); s.comments = [{ created_at: "2026-10-18T10:00:00Z", body: "LGTM" }];
+  const s = good(); s.comments = [{ created_at: "2026-10-18T10:00:00Z", user: { login: "hidetzu" }, body: "LGTM" }];
   assert.match(reasons(s), /no change-review return/);
 });
 
